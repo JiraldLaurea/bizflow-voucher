@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { businessScope } from "@/lib/rbac";
 import ClickableRow from "@/components/ClickableRow";
+import { dateRange } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,7 @@ export default async function CampaignsPage() {
                   <th>Campaign</th>
                   <th>Business</th>
                   <th>Offer</th>
+                  <th>Duration</th>
                   <th>Issued / Limit</th>
                   <th>Status</th>
                 </tr>
@@ -69,6 +71,7 @@ export default async function CampaignsPage() {
                     </td>
                     <td style={{ color: "var(--muted)" }}>{c.business.name}</td>
                     <td style={{ color: "var(--muted)" }}>{c.voucherBenefit}</td>
+                    <td style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{dateRange(c.startDate, c.endDate)}</td>
                     <td style={{ color: "var(--muted)" }}>{c.issuedCount} / {c.voucherLimitTotal}</td>
                     <td>
                       <span className={STATUS_BADGE[c.status] ?? "badge neutral"}>{c.status}</span>

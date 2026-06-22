@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { canAccessBusiness } from "@/lib/rbac";
 import { computeCampaignMetrics } from "@/lib/metrics";
-import { peso, pct, dateTime, dateShort } from "@/lib/format";
+import { peso, pct, dateTime, dateShort, dateRange, durationDays } from "@/lib/format";
 import Stat from "@/components/Stat";
 import CampaignStatusControl from "@/components/CampaignStatusControl";
 import CopyLink from "@/components/CopyLink";
@@ -70,6 +70,10 @@ export default async function CampaignDetailPage({ params }: { params: { id: str
             <span className={STATUS_BADGE[campaign.status] ?? "badge neutral"}>{campaign.status}</span>
           </h1>
           <p>{campaign.business.name} · {campaign.voucherBenefit}{campaign.minPurchase > 0 && ` · min ${peso(campaign.minPurchase)}`}</p>
+          <p style={{ marginTop: 2 }}>
+            {dateRange(campaign.startDate, campaign.endDate)} · {durationDays(campaign.startDate, campaign.endDate)} days
+            {campaign.voucherExpiryAt && ` · vouchers expire ${dateShort(campaign.voucherExpiryAt)}`}
+          </p>
         </div>
         {canManage && <CampaignStatusControl id={campaign.id} status={campaign.status} />}
       </div>
