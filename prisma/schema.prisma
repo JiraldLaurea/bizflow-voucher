@@ -1,0 +1,323 @@
+// BizFlow Voucher Engine — data model
+// Maps Business Plan §14.3 (Business, Campaign, Lead, Voucher, Redemption, SMS Log)
+// plus the auth/RBAC (§16.3) and compliance (§16) tables the system requires.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum UserRole {
+  PLATFORM_ADMIN
+  BUSINESS_OWNER
+  BRANCH_MANAGER
+  STORE_STAFF
+  CAMPAIGN_OPERATOR
+}
+
+enum Industry {
+  RESTAURANT
+  BEAUTY
+  PET_CLINIC
+  DENTAL
+  RETAIL
+  OTHER
+}
+
+enum SubscriptionPlan {
+  STARTER
+  GROWTH
+  MANAGED
+}
+
+enum BusinessStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+// Voucher lifecycle — Business Plan §7.3
+enum VoucherStatus {
+  CREATED
+  ISSUED
+  DELIVERED
+  FAILED
+  USED
+  EXPIRED
+  CANCELLED
+}
+
+enum SmsStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum ConsentType {
+  REQUIRED // voucher issuance / booking / redemption
+  MARKETING // optional future promotions
+}
+
+// ---------- Core tables ----------
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  isActive     Boolean   @default(true)
+  businessId   String? // null for PLATFORM_ADMIN
+  business     Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branchId     String? // for BRANCH_MANAGER / STORE_STAFF
+  branch       Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  redemptions Redemption[]
+
+  @@index([businessId])
+}
+
+model Business {
+  id               String           @id @default(cuid())
+  name             String
+  industry         Industry         @default(OTHER)
+  branchCount      Int              @default(1)
+  contactPerson    String?
+  phone            String?
+  email            String?
+  subscriptionPlan SubscriptionPlan @default(STARTER)
+  status           BusinessStatus   @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  users       User[]
+  branches    Branch[]
+  services    Service[]
+  campaigns   Campaign[]
+  redemptions Redemption[]
+  optOuts     OptOut[]
+}
+
+model Branch {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name       String
+  address    String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  users       User[]
+  leads       Lead[]
+  redemptions Redemption[]
+
+  @@index([businessId])
+}
+
+model Service {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name       String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  leads Lead[]
+
+  @@index([businessId])
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String   @unique // public landing page URL: /claim/{slug}
+  campaignType String  @default("VOUCHER")
+  channel     String   @default("DIRECT") // DIRECT | FB | IG | TIKTOK | GOOGLE
+
+  // Offer (§7.1)
+  offerTitle       String
+  offerDescription String?
+  voucherBenefit   String // e.g. "₱300 off dinner"
+  minPurchase      Int     @default(0) // whole pesos; 0 = none
+
+  // Voucher rules (§7.3)
+  voucherLimitTotal Int
+  voucherLimitDaily Int? // null = no daily cap
+  timeSlotLimit     Int? // capacity per time slot; null = unlimited
+  firstTimeOnly     Boolean @default(false)
+  redemptionRules   String?
+  voucherPrefix     String  @default("VCH")
+  issuedCount       Int     @default(0) // denormalized counter, guarded under row lock
+
+  // Scheduling
+  startDate       DateTime
+  endDate         DateTime
+  voucherExpiryAt DateTime? // null = falls back to campaign endDate
+
+  // Landing page config (§7.2)
+  landingTemplate String   @default("default")
+  collectGuests   Boolean  @default(false)
+  collectEmail    Boolean  @default(false)
+  requireDateTime Boolean  @default(true)
+  branchIds       String[] @default([]) // empty = all business branches
+  serviceIds      String[] @default([]) // empty = no service selector
+  timeSlots       String[] @default([]) // e.g. ["11:00","12:00","19:00"]
+
+  smsTemplate    String // template with {{code}} {{benefit}} {{datetime}} {{expiry}} etc.
+  trackingParams Json?
+
+  status    CampaignStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  leads    Lead[]
+  vouchers Voucher[]
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  campaignId      String
+  campaign        Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String // E.164, validated (§ feature 7)
+  email           String?
+  selectedDate    DateTime?
+  selectedTime    String?
+  branchId        String?
+  branch          Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  serviceId       String?
+  service         Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  guests          Int?
+  source          String? // tracking source / utm
+  marketingConsent Boolean @default(false)
+  createdAt       DateTime @default(now())
+
+  voucher  Voucher?
+  smsLogs  SmsLog[]
+  consents ConsentRecord[]
+
+  // Duplicate-claim prevention (§ feature 8 / §20.3): one claim per phone per campaign
+  @@unique([campaignId, phone])
+  @@index([campaignId])
+}
+
+model Voucher {
+  id          String        @id @default(cuid())
+  leadId      String        @unique
+  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId  String
+  campaign    Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  code        String        @unique // human-readable unique code (§ feature 9)
+  benefit     String
+  condition   String? // e.g. "Min spend ₱1,500"
+  expiryDate  DateTime
+  status      VoucherStatus @default(CREATED)
+  issuedAt    DateTime?
+  usedAt      DateTime?
+  usedBranchId String?
+  orderValue  Int? // whole pesos recorded at redemption
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  redemption Redemption?
+  smsLogs    SmsLog[]
+
+  @@index([campaignId])
+  @@index([status])
+}
+
+model Redemption {
+  id               String   @id @default(cuid())
+  voucherId        String   @unique
+  voucher          Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  staffId          String?
+  staff            User?    @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  businessId       String
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branchId         String?
+  branch           Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  redemptionStatus String // VALID etc.
+  orderValue       Int?
+  notes            String?
+  redeemedAt       DateTime @default(now())
+
+  @@index([businessId])
+}
+
+model SmsLog {
+  id                String    @id @default(cuid())
+  leadId            String?
+  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  voucherId         String?
+  voucher           Voucher?  @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  phone             String
+  messageBody       String
+  provider          String    @default("mock")
+  providerMessageId String?
+  deliveryStatus    SmsStatus @default(QUEUED)
+  failedReason      String?
+  sentAt            DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([voucherId])
+}
+
+// ---------- Compliance (§16) ----------
+
+model ConsentRecord {
+  id        String      @id @default(cuid())
+  leadId    String
+  lead      Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type      ConsentType
+  granted   Boolean
+  text      String // exact consent text shown at the time
+  createdAt DateTime    @default(now())
+
+  @@index([leadId])
+}
+
+model OptOut {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  phone      String
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@unique([businessId, phone])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  businessId  String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
+  @@index([entityType, entityId])
+}
