@@ -90,6 +90,7 @@
   .nav a {
     display: flex;
     align-items: center;
+    gap: 10px;
     min-height: 40px;
     padding: 10px 12px;
     border-radius: 8px;
@@ -97,6 +98,10 @@
     font-size: 14px;
     text-decoration: none;
     transition: background 0.1s;
+  }
+
+  .nav a svg {
+    color: var(--muted);
   }
 
   .nav a:hover {
@@ -107,6 +112,10 @@
     background: #ebebeb;
     font-weight: 500;
     color: var(--ink);
+  }
+
+  .nav a.active svg {
+    color: var(--accent);
   }
 
   .nav-footer {

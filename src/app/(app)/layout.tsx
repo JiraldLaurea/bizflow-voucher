@@ -5,18 +5,22 @@ import LogoutButton from "@/components/LogoutButton";
 import SideNav from "@/components/SideNav";
 import type { UserRole } from "@prisma/client";
 
+import type { IconName } from "@/components/SideNav";
+
 interface NavItem {
   href: string;
   label: string;
+  icon: IconName;
   roles: UserRole[];
 }
 
 const NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "CAMPAIGN_OPERATOR", "BRANCH_MANAGER"] },
-  { href: "/campaigns", label: "Campaigns", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "CAMPAIGN_OPERATOR"] },
-  { href: "/businesses", label: "Businesses", roles: ["PLATFORM_ADMIN"] },
-  { href: "/users", label: "Users", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER"] },
-  { href: "/validate", label: "Validate Voucher", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "BRANCH_MANAGER", "STORE_STAFF"] },
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "CAMPAIGN_OPERATOR", "BRANCH_MANAGER"] },
+  { href: "/campaigns", label: "Campaigns", icon: "campaigns", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "CAMPAIGN_OPERATOR"] },
+  { href: "/businesses", label: "Businesses", icon: "businesses", roles: ["PLATFORM_ADMIN"] },
+  { href: "/users", label: "Users", icon: "users", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER"] },
+  { href: "/validate", label: "Validate Voucher", icon: "validate", roles: ["PLATFORM_ADMIN", "BUSINESS_OWNER", "BRANCH_MANAGER", "STORE_STAFF"] },
+  { href: "/settings", label: "Settings", icon: "settings", roles: ["PLATFORM_ADMIN"] },
 ];
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -31,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getSession();
   if (!user) redirect("/login");
 
-  const items = NAV.filter((i) => i.roles.includes(user.role)).map(({ href, label }) => ({ href, label }));
+  const items = NAV.filter((i) => i.roles.includes(user.role)).map(({ href, label, icon }) => ({ href, label, icon }));
 
   return (
     <div className="app-shell">
